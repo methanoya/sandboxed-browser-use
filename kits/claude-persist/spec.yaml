@@ -1,0 +1,37 @@
+schemaVersion: "2"
+kind: mixin
+name: claude-persist
+displayName: Persistent Claude state
+description: Keeps the sandbox's own Claude Code settings, agents, commands and plugins on the host bind mount, so they survive recreating the sandbox
+
+setup:
+  install:
+    - command: |
+        set -eu
+        install -m 0755 /home/agent/.local/bin/persist-claude-state /usr/local/bin/persist-claude-state
+      user: "0"
+      description: Put persist-claude-state on PATH
+  startup:
+    - command:
+        - sh
+        - -c
+        - /usr/local/bin/persist-claude-state > /tmp/persist-claude-state.log 2>&1
+      user: "1000"
+      description: Link the sandbox's Claude config to <workspace>/.persisted/claude
+
+agentInstructions:
+  content: |
+    ## Persistent Claude state
+
+    This sandbox's own Claude Code configuration lives on the host bind mount, at
+    `$WORKSPACE_DIR/.persisted/claude`, so it survives `sbx env rm` + `sbx env run`.
+    `~/.claude/settings.json` and `~/.claude/{agents,commands,plugins,output-styles,hooks}`
+    are symlinks into it.
+
+    - `.persisted/` is git-ignored. Never commit it: `settings.json` and Claude's
+      `.claude.json` carry account details.
+    - This is one-way. The user's Mac has its own separate Claude configuration,
+      which is not mounted here and must not be sought out.
+    - Conversation transcripts (`~/.claude/projects`) are NOT persisted: they sit
+      on a sandbox-scoped volume that is destroyed with the sandbox.
+    - To re-apply after editing the script: `persist-claude-state`.

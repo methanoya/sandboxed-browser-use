@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Keep the sandbox's own Claude Code configuration on the host bind mount, so a
+# `sbx env rm` + `sbx env run` doesn't start from scratch. Everything that has to
+# outlive the sandbox goes under <workspace>/.persisted/.
+#
+# This only ever moves the SANDBOX's config outward onto host disk. It does not
+# read the host's ~/.claude: that isn't mounted and isn't reachable from here.
+set -u
+
+if [ -z "${WORKSPACE_DIR:-}" ] || [ ! -d "${WORKSPACE_DIR:-}" ]; then
+  echo "persist-claude-state: WORKSPACE_DIR is unset or missing; Claude config will not persist" >&2
+  exit 0
+fi
+
+store="$WORKSPACE_DIR/.persisted/claude"
+config="$HOME/.claude"
+mkdir -p "$store" "$config"
+
+# settings.json. sbx writes its own defaults here when the agent starts, which
+# may be before or after this runs, so merge rather than overwrite: sbx's keys
+# are defaults and the persisted file wins. A regular file at the live path is
+# either that seed or a write that replaced our symlink; neither may be lost.
+python3 - "$store" "$config" <<'PY'
+import json, os, sys
+
+store, config = sys.argv[1], sys.argv[2]
+live = os.path.join(config, "settings.json")
+kept = os.path.join(store, "settings.json")
+
+
+def load(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+first_run = not os.path.exists(kept)
+merged = {} if os.path.islink(live) else load(live)
+merged.update(load(kept))
+
+# Approve the project's MCP server so it isn't pending after every recreate.
+# Only on the first run, or if the key was never written: if it's there and
+# chrome-devtools isn't, someone removed it deliberately.
+if first_run or "enabledMcpjsonServers" not in merged:
+    servers = merged.setdefault("enabledMcpjsonServers", [])
+    if "chrome-devtools" not in servers:
+        servers.append("chrome-devtools")
+
+with open(kept, "w") as f:
+    json.dump(merged, f, indent=2)
+    f.write("\n")
+PY
+
+ln -sfn "$store/settings.json" "$config/settings.json"
+
+# Config directories. Linking a directory is safe where linking a file is not:
+# an atomic rewrite inside one replaces a file, not the link itself. Anything
+# already present is moved into the store once, on the first run.
+for name in agents commands plugins output-styles hooks; do
+  link="$config/$name"
+  target="$store/$name"
+  if [ -e "$link" ] && [ ! -L "$link" ]; then
+    mkdir -p "$target"
+    cp -a "$link/." "$target/" 2> /dev/null || true
+    rm -rf "$link"
+  fi
+  mkdir -p "$target"
+  ln -sfn "$target" "$link"
+done
+
+echo "persist-claude-state: Claude config persisted under $store"

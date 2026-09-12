@@ -1,0 +1,90 @@
+schemaVersion: "2"
+kind: mixin
+name: chrome
+displayName: Google Chrome
+description: Google Chrome stable on the desktop kit's display, trusting the sandbox proxy CA, with a DevTools port for automation
+
+permissions:
+  network:
+    allow:
+      - dl.google.com:443
+      # A general-purpose browser needs arbitrary sites. Narrow this list (and
+      # rely on sbx policy) if the sandbox should only reach specific hosts.
+      - "**"
+
+setup:
+  install:
+    - command: |
+        set -eu
+        export DEBIAN_FRONTEND=noninteractive
+        arch="$(dpkg --print-architecture)"
+        curl -fsSL -o /tmp/google-chrome.deb \
+          "https://dl.google.com/linux/direct/google-chrome-stable_current_${arch}.deb"
+        apt-get update
+        apt-get install -y --no-install-recommends /tmp/google-chrome.deb libnss3-tools
+        rm -rf /tmp/google-chrome.deb /var/lib/apt/lists/*
+        google-chrome-stable --version
+      user: "0"
+      description: Install Google Chrome stable (amd64 or arm64) and certutil
+    - command: |
+        set -eu
+        export DEBIAN_FRONTEND=noninteractive
+        dpkg-query -W -f='${Package}\n' | sort > /tmp/packages-before
+        apt-get update
+        apt-get install -y --no-install-recommends gcc libc6-dev
+        gcc -O2 -shared -fPIC -Wall -o /usr/local/lib/libhide-sme.so /home/agent/.local/src/hide-sme.c
+        dpkg-query -W -f='${Package}\n' | sort | comm -13 /tmp/packages-before - > /tmp/packages-added
+        xargs -r apt-get purge -y < /tmp/packages-added
+        rm -f /tmp/packages-before /tmp/packages-added
+        rm -rf /var/lib/apt/lists/*
+      user: "0"
+      description: Build libhide-sme.so (hides SME from Chrome, which crashes on SME-only CPUs such as Apple M4), then remove the compiler
+    - command: |
+        set -eu
+        npm install -g chrome-devtools-mcp@1.9.0
+        ln -sf "$(npm prefix -g)/bin/chrome-devtools-mcp" /usr/local/bin/chrome-devtools-mcp
+        test -x /usr/local/bin/chrome-devtools-mcp
+      user: "0"
+      description: Install Chrome DevTools MCP 1.9.0, pinned
+    - command: |
+        set -eu
+        install -m 0755 /home/agent/.local/bin/chrome /usr/local/bin/chrome
+        install -m 0755 /home/agent/.local/bin/start-chrome /usr/local/bin/start-chrome
+        install -m 0755 /home/agent/.local/bin/chrome-devtools-mcp-sandbox /usr/local/bin/chrome-devtools-mcp-sandbox
+      user: "0"
+      description: Put the chrome launcher, the autostart script and the MCP entry point on PATH
+  startup:
+    - command:
+        - sh
+        - -c
+        - nohup /usr/local/bin/start-chrome > /tmp/chrome.log 2>&1 &
+      user: "1000"
+      description: Open Chrome on the desktop, so noVNC shows a browser and not a black screen
+
+agentInstructions:
+  content: |
+    ## Google Chrome
+
+    Google Chrome stable is installed. Use the `chrome` launcher, not
+    `google-chrome-stable` directly: it targets the desktop display, trusts the
+    sandbox proxy's CA, and routes traffic through the proxy.
+
+    - Open a page on the desktop: `nohup chrome https://example.com > /tmp/chrome.log 2>&1 &`.
+      Running `chrome <url>` again opens a tab in the existing window.
+    - Chrome opens automatically at sandbox start. If the user reports a black
+      noVNC screen, it is almost always that no window is open, not a broken
+      desktop: check `pgrep -f google-chrome-stable` before anything else, and
+      run `start-chrome` to bring it back.
+    - The profile lives in `$WORKSPACE_DIR/.persisted/chrome-profile` on the host
+      bind mount, so logins survive both restarts and recreating the sandbox.
+      It is git-ignored and holds real cookies; never commit or read it out.
+    - Browse and automate with the `chrome-devtools` MCP tools (`new_page`,
+      `take_snapshot`, `click`, `fill`, `take_screenshot`, ...). They drive this
+      same visible Chrome, so the user can watch in noVNC. Most tools need the
+      `pageId` returned by `new_page` or `list_pages`.
+    - The MCP server starts Chrome when Claude starts. If the user closes it,
+      reopen it with `nohup chrome > /tmp/chrome.log 2>&1 &`.
+    - Without MCP, the DevTools protocol is at http://127.0.0.1:9222 inside the
+      sandbox (not published to the host).
+    - All traffic passes the sandbox network policy. A proxy error page means the
+      site is blocked. Tell the user instead of working around it.

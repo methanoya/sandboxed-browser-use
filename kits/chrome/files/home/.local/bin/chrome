@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Launch Google Chrome on the sandbox desktop (DISPLAY :1). Arguments pass
+# through, e.g. `chrome https://example.com`; a second call opens a tab in the
+# running browser.
+set -uo pipefail
+
+export DISPLAY="${DISPLAY:-:1}"
+# The sandbox environment advertises a Wayland session; keep Chrome on the X11
+# desktop that noVNC shows.
+unset WAYLAND_DISPLAY XDG_SESSION_TYPE
+# Keep the profile on the host bind mount so logins survive a sandbox recreate;
+# everything that has to outlive the sandbox lives under .persisted/.
+if [ -n "${CHROME_PROFILE_DIR:-}" ]; then
+  profile="$CHROME_PROFILE_DIR"
+elif [ -n "${WORKSPACE_DIR:-}" ]; then
+  profile="$WORKSPACE_DIR/.persisted/chrome-profile"
+else
+  profile="$HOME/.config/chrome-sandbox"
+fi
+
+# The sandbox proxy intercepts HTTPS for some hosts (e.g. ones it injects
+# credentials into) and signs them with its own CA. Chrome on Linux trusts roots
+# from the user's NSS database, not /etc/ssl, so re-import it on every launch in
+# case the CA changed.
+proxy_ca=/usr/local/share/ca-certificates/proxy-ca.crt
+nssdb="$HOME/.pki/nssdb"
+if [ -f "$proxy_ca" ]; then
+  mkdir -p "$nssdb"
+  [ -f "$nssdb/cert9.db" ] || certutil -d "sql:$nssdb" -N --empty-password
+  certutil -d "sql:$nssdb" -D -n sandbox-proxy-ca > /dev/null 2>&1
+  certutil -d "sql:$nssdb" -A -t "C,," -n sandbox-proxy-ca -i "$proxy_ca" \
+    || echo "chrome: could not import the sandbox proxy CA; HTTPS pages may fail" >&2
+fi
+
+args=(
+  --ozone-platform=x11
+  --user-data-dir="$profile"
+  --no-first-run
+  --no-default-browser-check
+  --password-store=basic
+  --disable-dev-shm-usage
+  --remote-debugging-port="${CHROME_DEBUG_PORT:-9222}"
+)
+
+proxy="${HTTPS_PROXY:-${https_proxy:-}}"
+if [ -n "$proxy" ]; then
+  args+=(--proxy-server="$proxy")
+fi
+
+# On SME-only CPUs such as the Apple M4, Chrome runs SVE instructions outside SME
+# streaming mode and its video code dies with SIGILL ("Aw, Snap! Error code: 4"
+# on YouTube or Vimeo). Hide SME from its CPU feature detection; see
+# ~/.local/src/hide-sme.c.
+sme_shim=/usr/local/lib/libhide-sme.so
+if [ -f "$sme_shim" ]; then
+  export LD_PRELOAD="$sme_shim${LD_PRELOAD:+:$LD_PRELOAD}"
+fi
+
+exec /usr/bin/google-chrome-stable "${args[@]}" "$@"

@@ -1,0 +1,9 @@
+/.tails/
+
+# State that outlives the sandbox: Chrome's profile (real cookies and logins)
+# and the sandbox's Claude config (account details). Never commit these.
+/.persisted/
+
+# Written into the workspace root by sbx at sandbox creation.
+/CLAUDE.md
+/kits-agent-context/
