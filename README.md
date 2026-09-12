@@ -30,7 +30,7 @@ This directory is the [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) 
 
 ## Create and run
 
-From the **project root** (the directory that contains `.sbx`):
+From the **project root** (the directory that contains `sbxenv.yaml`):
 
 ```bash
 # Preview what will be created (no changes)
