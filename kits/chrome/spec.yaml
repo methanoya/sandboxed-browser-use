@@ -49,6 +49,7 @@ setup:
     - command: |
         set -eu
         install -m 0755 /home/agent/.local/bin/chrome /usr/local/bin/chrome
+        install -m 0755 /home/agent/.local/bin/chrome-profile-dir /usr/local/bin/chrome-profile-dir
         install -m 0755 /home/agent/.local/bin/start-chrome /usr/local/bin/start-chrome
         install -m 0755 /home/agent/.local/bin/chrome-devtools-mcp-sandbox /usr/local/bin/chrome-devtools-mcp-sandbox
       user: "0"

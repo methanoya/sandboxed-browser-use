@@ -13,6 +13,7 @@ This directory is the [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) 
 | [`kits/chrome/files/home/.local/bin/chrome`](kits/chrome/files/home/.local/bin/chrome) | Chrome launcher: display, proxy, proxy CA import, M4 crash workaround, persistent profile, DevTools on `127.0.0.1:9222` |
 | [`kits/chrome/files/home/.local/bin/chrome-devtools-mcp-sandbox`](kits/chrome/files/home/.local/bin/chrome-devtools-mcp-sandbox) | MCP server command: starts Chrome if needed, then runs Chrome DevTools MCP attached to it |
 | [`kits/chrome/files/home/.local/src/hide-sme.c`](kits/chrome/files/home/.local/src/hide-sme.c) | Source of the M4 crash workaround library |
+| [`kits/chrome/files/home/.local/bin/chrome-profile-dir`](kits/chrome/files/home/.local/bin/chrome-profile-dir) | Resolves the Chrome profile directory; used by both `chrome` and `start-chrome` so they can't disagree |
 | [`kits/chrome/files/home/.local/bin/start-chrome`](kits/chrome/files/home/.local/bin/start-chrome) | Opens Chrome on the desktop at every sandbox start, after clearing stale profile locks |
 | [`kits/claude-persist/spec.yaml`](kits/claude-persist/spec.yaml) | Mixin: keeps the sandbox's own Claude Code config on the host mount, so it survives recreating the sandbox |
 | [`kits/claude-persist/files/home/.local/bin/persist-claude-state`](kits/claude-persist/files/home/.local/bin/persist-claude-state) | Merges `settings.json` and links `~/.claude` config directories into `.persisted/claude` |
@@ -52,17 +53,17 @@ Other options:
 
 ```bash
 # Use a different host port (e.g. when another sandbox already has 6080)
-sbx env run .sbx --env-arg novncPort=6081
+sbx env run . --env-arg novncPort=6081
 
 # Change the desktop size (applies at creation)
-sbx env run .sbx --kit-arg desktop.resolution=1920x1080x24
+sbx env run . --kit-arg desktop.resolution=1920x1080x24
 ```
 
 ## Browser automation (Chrome DevTools MCP)
 
 Claude Code in the sandbox gets browser tools (open pages, click, fill forms, read the page, take screenshots, inspect network and console) from the `chrome-devtools` server in the project's [`.mcp.json`](./.mcp.json). They drive the same Chrome you see in noVNC, so you can watch what Claude does.
 
-- **First run:** Claude asks you to approve the `chrome-devtools` server. Approve it. If it's ever skipped, `/mcp` inside Claude shows the server and lets you enable it.
+- **Pre-approved, deliberately:** `persist-claude-state` writes `enabledMcpjsonServers: ["chrome-devtools"]` into `.persisted/claude/settings.json` the first time it runs, so Claude does *not* prompt you to approve this server. That is a real grant: the server can drive a browser holding your logins. To be asked instead, remove that entry from `.persisted/claude/settings.json` (it is only re-added if the key is absent entirely), or drop the `enabledMcpjsonServers` block from [`persist-claude-state`](kits/claude-persist/files/home/.local/bin/persist-claude-state). `/mcp` inside Claude shows the server's current state either way.
 - **Chrome starts with Claude:** the server command, `chrome-devtools-mcp-sandbox`, starts Chrome if it isn't already running.
 - **Privacy:** the server runs with `--no-usage-statistics` and `--no-performance-crux`, and its npm update checks are off, so it doesn't report to Google or check for updates. The version is pinned in the Chrome kit.
 - **On your Mac:** Claude Code there reads the same `.mcp.json`. Don't approve the server there; its command exists only inside the sandbox.

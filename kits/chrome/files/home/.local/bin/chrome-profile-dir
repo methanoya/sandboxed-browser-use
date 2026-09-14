@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Print the directory Chrome uses as its profile. Single source of truth: both
+# the `chrome` launcher and `start-chrome` ask this, so the stale-lock cleanup
+# can never clean a different directory than the one Chrome actually opens.
+set -u
+
+if [ -n "${CHROME_PROFILE_DIR:-}" ]; then
+  echo "$CHROME_PROFILE_DIR"
+elif [ -n "${WORKSPACE_DIR:-}" ]; then
+  # On the host bind mount, so logins survive recreating the sandbox.
+  echo "$WORKSPACE_DIR/.persisted/chrome-profile"
+else
+  # No workspace mounted: nothing here outlives the sandbox anyway.
+  echo "$HOME/.config/chrome-sandbox"
+fi

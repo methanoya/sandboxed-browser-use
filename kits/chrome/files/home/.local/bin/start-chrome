@@ -32,7 +32,7 @@ fi
 # running at this point -- the CDP check above returned nothing -- so clearing
 # the lock here is safe and removes both cases.
 if ! pgrep -u "$(id -u)" -f "google-chrome[-]stable" > /dev/null 2>&1; then
-  profile="${CHROME_PROFILE_DIR:-${WORKSPACE_DIR:-$HOME/.config}/.persisted/chrome-profile}"
+  profile="$(chrome-profile-dir)"
   rm -f "$profile/SingletonLock" "$profile/SingletonCookie" "$profile/SingletonSocket"
 fi
 

@@ -20,7 +20,7 @@ mkdir -p "$store" "$config"
 # may be before or after this runs, so merge rather than overwrite: sbx's keys
 # are defaults and the persisted file wins. A regular file at the live path is
 # either that seed or a write that replaced our symlink; neither may be lost.
-python3 - "$store" "$config" <<'PY'
+if ! python3 - "$store" "$config" <<'PY'
 import json, os, sys
 
 store, config = sys.argv[1], sys.argv[2]
@@ -29,16 +29,21 @@ kept = os.path.join(store, "settings.json")
 
 
 def load(path):
-    try:
-        with open(path) as f:
-            return json.load(f)
-    except (OSError, ValueError):
+    """Missing means empty. Anything else -- malformed JSON from a write cut
+    short, a permission error on the mount -- must not be read as empty: the
+    merge below would overwrite months of settings with the defaults."""
+    if not os.path.exists(path):
         return {}
+    with open(path) as f:
+        return json.load(f)
 
 
-first_run = not os.path.exists(kept)
-merged = {} if os.path.islink(live) else load(live)
-merged.update(load(kept))
+try:
+    first_run = not os.path.exists(kept)
+    merged = {} if os.path.islink(live) else load(live)
+    merged.update(load(kept))
+except (OSError, ValueError) as err:
+    sys.exit(f"  {type(err).__name__}: {err}")
 
 # Approve the project's MCP server so it isn't pending after every recreate.
 # Only on the first run, or if the key was never written: if it's there and
@@ -48,10 +53,19 @@ if first_run or "enabledMcpjsonServers" not in merged:
     if "chrome-devtools" not in servers:
         servers.append("chrome-devtools")
 
-with open(kept, "w") as f:
+# Write through a temporary file, so a crash here cannot truncate the settings
+# and make the next run read them as empty.
+tmp = kept + ".tmp"
+with open(tmp, "w") as f:
     json.dump(merged, f, indent=2)
     f.write("\n")
+os.replace(tmp, kept)
 PY
+then
+  echo "persist-claude-state: could not merge settings.json; leaving it untouched" >&2
+  echo "  inspect $store/settings.json and $config/settings.json by hand" >&2
+  exit 1
+fi
 
 ln -sfn "$store/settings.json" "$config/settings.json"
 
@@ -63,7 +77,11 @@ for name in agents commands plugins output-styles hooks; do
   target="$store/$name"
   if [ -e "$link" ] && [ ! -L "$link" ]; then
     mkdir -p "$target"
-    cp -a "$link/." "$target/" 2> /dev/null || true
+    # Only remove the original once the copy has actually succeeded.
+    if ! cp -a "$link/." "$target/"; then
+      echo "persist-claude-state: could not copy $link into $target; left in place" >&2
+      continue
+    fi
     rm -rf "$link"
   fi
   mkdir -p "$target"

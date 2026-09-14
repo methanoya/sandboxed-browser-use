@@ -8,15 +8,9 @@ export DISPLAY="${DISPLAY:-:1}"
 # The sandbox environment advertises a Wayland session; keep Chrome on the X11
 # desktop that noVNC shows.
 unset WAYLAND_DISPLAY XDG_SESSION_TYPE
-# Keep the profile on the host bind mount so logins survive a sandbox recreate;
-# everything that has to outlive the sandbox lives under .persisted/.
-if [ -n "${CHROME_PROFILE_DIR:-}" ]; then
-  profile="$CHROME_PROFILE_DIR"
-elif [ -n "${WORKSPACE_DIR:-}" ]; then
-  profile="$WORKSPACE_DIR/.persisted/chrome-profile"
-else
-  profile="$HOME/.config/chrome-sandbox"
-fi
+# Resolved by chrome-profile-dir, which start-chrome also uses, so the two can
+# never disagree about which profile is in play.
+profile="$(chrome-profile-dir)"
 
 # The sandbox proxy intercepts HTTPS for some hosts (e.g. ones it injects
 # credentials into) and signs them with its own CA. Chrome on Linux trusts roots
