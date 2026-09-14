@@ -1,0 +1,28 @@
+schemaVersion: "1"
+name: sandboxed-browser-use
+agent: claude
+# don't forget to set it right in case of mounted folder
+workspace: .
+
+args:
+  novncPort:
+    default: "6080"
+    pattern: "[0-9]+"
+    description: Host port for the noVNC desktop (http://localhost:<port>)
+  persistDir:
+    default: .persisted
+    description: Where state that outlives the sandbox goes (Chrome profile, Claude config). Relative to the workspace, or an absolute path on a host mount
+
+env:
+  # Read by chrome-profile-dir and persist-claude-state.
+  PERSIST_DIR: ${{ env.args.persistDir }}
+
+kits:
+  - ./kits/desktop
+  - ./kits/chrome
+  - ./kits/claude-persist
+
+ports:
+  # noVNC web desktop. The kit also declares it; listing it here pins the host port.
+  - sandbox: 6080
+    host: ${{ env.args.novncPort }}
