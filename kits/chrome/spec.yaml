@@ -76,9 +76,10 @@ agentInstructions:
       noVNC screen, it is almost always that no window is open, not a broken
       desktop: check `pgrep -f google-chrome-stable` before anything else, and
       run `start-chrome` to bring it back.
-    - The profile lives in `$WORKSPACE_DIR/.persisted/chrome-profile` on the host
-      bind mount, so logins survive both restarts and recreating the sandbox.
-      It is git-ignored and holds real cookies; never commit or read it out.
+    - The profile lives in `$PERSIST_DIR/chrome-profile` on the host bind mount
+      (`$WORKSPACE_DIR/.persisted/chrome-profile` by default; `chrome-profile-dir`
+      prints it), so logins survive both restarts and recreating the sandbox.
+      It holds real cookies; never commit or read it out.
     - Browse and automate with the `chrome-devtools` MCP tools (`new_page`,
       `take_snapshot`, `click`, `fill`, `take_screenshot`, ...). They drive this
       same visible Chrome, so the user can watch in noVNC. Most tools need the

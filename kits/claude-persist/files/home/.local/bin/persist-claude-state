@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
 # Keep the sandbox's own Claude Code configuration on the host bind mount, so a
 # `sbx env rm` + `sbx env run` doesn't start from scratch. Everything that has to
-# outlive the sandbox goes under <workspace>/.persisted/.
+# outlive the sandbox goes under $PERSIST_DIR (the env file's persistDir arg),
+# which is relative to the workspace or absolute; <workspace>/.persisted by default.
 #
 # This only ever moves the SANDBOX's config outward onto host disk. It does not
 # read the host's ~/.claude: that isn't mounted and isn't reachable from here.
 set -u
 
-if [ -z "${WORKSPACE_DIR:-}" ] || [ ! -d "${WORKSPACE_DIR:-}" ]; then
-  echo "persist-claude-state: WORKSPACE_DIR is unset or missing; Claude config will not persist" >&2
-  exit 0
+persist="${PERSIST_DIR:-.persisted}"
+if [ "${persist#/}" = "$persist" ]; then
+  if [ -z "${WORKSPACE_DIR:-}" ] || [ ! -d "${WORKSPACE_DIR:-}" ]; then
+    echo "persist-claude-state: WORKSPACE_DIR is unset or missing; Claude config will not persist" >&2
+    exit 0
+  fi
+  persist="$WORKSPACE_DIR/$persist"
 fi
 
-store="$WORKSPACE_DIR/.persisted/claude"
+store="$persist/claude"
 config="$HOME/.claude"
 mkdir -p "$store" "$config"
 

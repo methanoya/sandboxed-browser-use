@@ -4,11 +4,17 @@
 # can never clean a different directory than the one Chrome actually opens.
 set -u
 
+# PERSIST_DIR (the env file's persistDir arg): relative to the workspace, or
+# absolute. Projects that reuse these kits set it so they don't share one profile.
+persist="${PERSIST_DIR:-.persisted}"
+
 if [ -n "${CHROME_PROFILE_DIR:-}" ]; then
   echo "$CHROME_PROFILE_DIR"
+elif [ "${persist#/}" != "$persist" ]; then
+  echo "$persist/chrome-profile"
 elif [ -n "${WORKSPACE_DIR:-}" ]; then
   # On the host bind mount, so logins survive recreating the sandbox.
-  echo "$WORKSPACE_DIR/.persisted/chrome-profile"
+  echo "$WORKSPACE_DIR/$persist/chrome-profile"
 else
   # No workspace mounted: nothing here outlives the sandbox anyway.
   echo "$HOME/.config/chrome-sandbox"

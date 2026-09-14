@@ -6,7 +6,7 @@ This directory is the [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) 
 
 | File | Role |
 |------|------|
-| [`sbxenv.yaml`](sbxenv.yaml) | Project environment: sandbox name, agent, workspace (`.` = this directory), kits, noVNC host port |
+| [`sbxenv.yaml`](sbxenv.yaml) | Project environment: sandbox name, agent, workspace (`.` = this directory), kits, noVNC host port, persisted-state location |
 | [`kits/desktop/spec.yaml`](kits/desktop/spec.yaml) | Mixin: Xvfb + Openbox on `DISPLAY=:1`, x11vnc, and noVNC on port 6080; also `xdotool` and `scrot` so the agent can drive and screenshot the screen |
 | [`kits/desktop/files/home/.local/bin/start-desktop`](kits/desktop/files/home/.local/bin/start-desktop) | Idempotent desktop startup script, run at every sandbox start |
 | [`kits/chrome/spec.yaml`](kits/chrome/spec.yaml) | Mixin: Google Chrome stable (amd64 or arm64), `certutil`, Chrome DevTools MCP 1.9.0, and the Apple M4 crash workaround |
@@ -16,7 +16,7 @@ This directory is the [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) 
 | [`kits/chrome/files/home/.local/bin/chrome-profile-dir`](kits/chrome/files/home/.local/bin/chrome-profile-dir) | Resolves the Chrome profile directory; used by both `chrome` and `start-chrome` so they can't disagree |
 | [`kits/chrome/files/home/.local/bin/start-chrome`](kits/chrome/files/home/.local/bin/start-chrome) | Opens Chrome on the desktop at every sandbox start, after clearing stale profile locks |
 | [`kits/claude-persist/spec.yaml`](kits/claude-persist/spec.yaml) | Mixin: keeps the sandbox's own Claude Code config on the host mount, so it survives recreating the sandbox |
-| [`kits/claude-persist/files/home/.local/bin/persist-claude-state`](kits/claude-persist/files/home/.local/bin/persist-claude-state) | Merges `settings.json` and links `~/.claude` config directories into `.persisted/claude` |
+| [`kits/claude-persist/files/home/.local/bin/persist-claude-state`](kits/claude-persist/files/home/.local/bin/persist-claude-state) | Merges `settings.json` and links `~/.claude` config directories into `<persistDir>/claude` |
 | [`sync-kits.sh`](sync-kits.sh) | Pushes edits to `kits/*/files/**` into the running sandbox, so iterating on them needs no recreate |
 | [`.mcp.json`](./.mcp.json) | Registers the `chrome-devtools` MCP server for Claude Code in this project |
 
@@ -57,13 +57,16 @@ sbx env run . --env-arg novncPort=6081
 
 # Change the desktop size (applies at creation)
 sbx env run . --kit-arg desktop.resolution=1920x1080x24
+
+# Keep persisted state somewhere else (see "What survives recreating the sandbox")
+sbx env run . --env-arg persistDir=.persisted-work
 ```
 
 ## Browser automation (Chrome DevTools MCP)
 
 Claude Code in the sandbox gets browser tools (open pages, click, fill forms, read the page, take screenshots, inspect network and console) from the `chrome-devtools` server in the project's [`.mcp.json`](./.mcp.json). They drive the same Chrome you see in noVNC, so you can watch what Claude does.
 
-- **Pre-approved, deliberately:** `persist-claude-state` writes `enabledMcpjsonServers: ["chrome-devtools"]` into `.persisted/claude/settings.json` the first time it runs, so Claude does *not* prompt you to approve this server. That is a real grant: the server can drive a browser holding your logins. To be asked instead, remove that entry from `.persisted/claude/settings.json` (it is only re-added if the key is absent entirely), or drop the `enabledMcpjsonServers` block from [`persist-claude-state`](kits/claude-persist/files/home/.local/bin/persist-claude-state). `/mcp` inside Claude shows the server's current state either way.
+- **Pre-approved, deliberately:** `persist-claude-state` writes `enabledMcpjsonServers: ["chrome-devtools"]` into `<persistDir>/claude/settings.json` the first time it runs, so Claude does *not* prompt you to approve this server. That is a real grant: the server can drive a browser holding your logins. To be asked instead, remove that entry from `<persistDir>/claude/settings.json` (it is only re-added if the key is absent entirely), or drop the `enabledMcpjsonServers` block from [`persist-claude-state`](kits/claude-persist/files/home/.local/bin/persist-claude-state). `/mcp` inside Claude shows the server's current state either way.
 - **Chrome starts with Claude:** the server command, `chrome-devtools-mcp-sandbox`, starts Chrome if it isn't already running.
 - **Privacy:** the server runs with `--no-usage-statistics` and `--no-performance-crux`, and its npm update checks are off, so it doesn't report to Google or check for updates. The version is pinned in the Chrome kit.
 - **On your Mac:** Claude Code there reads the same `.mcp.json`. Don't approve the server there; its command exists only inside the sandbox.
@@ -73,17 +76,27 @@ Try asking: "Open news.ycombinator.com and summarize the top five stories."
 
 ## What survives recreating the sandbox
 
-Only the project directory is bind-mounted from the host; everything else lives on the container's overlay and is destroyed by `sbx env rm`. State that has to outlive the sandbox therefore goes under `.persisted/`, which is git-ignored:
+Only the project directory is bind-mounted from the host; everything else lives on the container's overlay and is destroyed by `sbx env rm`. State that has to outlive the sandbox therefore goes under the `persistDir` env arg, `.persisted/` by default:
 
 | Path | Holds |
 |------|-------|
-| `.persisted/chrome-profile` | Chrome's profile: logins, cookies, history |
-| `.persisted/claude/settings.json` | The sandbox's Claude Code settings, including the `chrome-devtools` MCP approval |
-| `.persisted/claude/{agents,commands,plugins,output-styles,hooks}` | Claude config directories, symlinked from `~/.claude` |
+| `<persistDir>/chrome-profile` | Chrome's profile: logins, cookies, history |
+| `<persistDir>/claude/settings.json` | The sandbox's Claude Code settings, including the `chrome-devtools` MCP approval |
+| `<persistDir>/claude/{agents,commands,plugins,output-styles,hooks}` | Claude config directories, symlinked from `~/.claude` |
 
-Two things to know:
+`persistDir` is relative to the workspace, or an absolute path. It reaches the kits as the `PERSIST_DIR` variable. Set it per project when several environments reuse these kits, so they don't share one Chrome profile and one set of Claude settings:
 
-- **Never commit `.persisted/`.** The Chrome profile holds live session cookies, and Claude's config carries account details.
+```yaml
+# another-project/sbxenv.yaml, layered over this one
+args:
+  persistDir:
+    default: .persisted-another-project
+```
+
+Three things to know:
+
+- **Never commit the persisted directory.** The Chrome profile holds live session cookies, and Claude's config carries account details. Only the default `.persisted/` is in [`.gitignore`](.gitignore); add any other location yourself.
+- **It must be on a host mount.** A path outside the workspace (or another mounted directory) lives on the container overlay and is destroyed with the sandbox like everything else.
 - **This is one-way.** It moves the *sandbox's* configuration outward onto host disk. Your Mac's own `~/.claude` is not mounted into the sandbox and is not reachable from it.
 
 Conversation transcripts (`~/.claude/projects`) are *not* persisted: `sbx` keeps them on a sandbox-scoped volume that is destroyed with the sandbox, and `sbx volume` is cloud-only.

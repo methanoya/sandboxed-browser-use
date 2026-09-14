@@ -95,7 +95,7 @@ sbx env exec "$env_dir" -- bash -lc '
   printf "    windows:  "; DISPLAY=:1 xdotool search --onlyvisible --name ".+" getwindowname %@ 2>/dev/null | paste -sd", " -
   printf "    devtools: "; curl -s --max-time 3 --noproxy "*" http://127.0.0.1:9222/json/version 2>/dev/null \
     | python3 -c "import sys,json;print(json.load(sys.stdin)[\"Browser\"])" 2>/dev/null || echo DOWN
-  printf "    profile:  "; ls -d "$WORKSPACE_DIR/.persisted/chrome-profile" 2>/dev/null || echo "not created yet"
+  printf "    profile:  "; ls -d "$(chrome-profile-dir)" 2>/dev/null || echo "not created yet"
   printf "    claude:   "; readlink "$HOME/.claude/settings.json" 2>/dev/null || echo "not linked"
 '
 echo "==> done. Reload http://localhost:6080"
