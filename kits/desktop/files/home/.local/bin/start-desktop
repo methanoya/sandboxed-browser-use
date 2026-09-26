@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Start the virtual desktop: Xvfb on :1, Openbox, x11vnc on localhost:5900, and
+# noVNC on 0.0.0.0:6080. Runs at every sandbox start, so each piece is started
+# only if it isn't already running.
+set -u
+
+export DISPLAY=:1
+# The sandbox environment advertises a Wayland session; x11vnc sees that and
+# exits ("Wayland display server detected"), so present a plain X11 session.
+unset WAYLAND_DISPLAY XDG_SESSION_TYPE
+resolution="${{ kit.args.resolution }}"
+log_dir=/tmp/desktop
+mkdir -p "$log_dir"
+
+is_running() { pgrep -u "$(id -u)" -f "$1" > /dev/null; }
+
+if [ ! -d /tmp/.X11-unix ]; then
+  sudo install -d -m 1777 /tmp/.X11-unix
+fi
+
+if ! is_running "^Xvfb $DISPLAY"; then
+  rm -f /tmp/.X1-lock /tmp/.X11-unix/X1
+  nohup Xvfb "$DISPLAY" -screen 0 "$resolution" -nolisten tcp > "$log_dir/xvfb.log" 2>&1 &
+fi
+
+for _ in $(seq 50); do
+  xdpyinfo > /dev/null 2>&1 && break
+  sleep 0.2
+done
+
+if ! is_running "^openbox"; then
+  nohup openbox > "$log_dir/openbox.log" 2>&1 &
+fi
+
+# Keep a single workspace: with Openbox's default four, scrolling the mouse
+# wheel over the background switches away from open windows.
+for _ in $(seq 25); do
+  xdotool set_num_desktops 1 2> /dev/null
+  [ "$(xdotool get_num_desktops 2> /dev/null)" = 1 ] && break
+  sleep 0.2
+done
+
+if ! is_running "^x11vnc"; then
+  nohup x11vnc -display "$DISPLAY" -rfbport 5900 -localhost -forever -shared -nopw \
+    > "$log_dir/x11vnc.log" 2>&1 &
+fi
+
+if ! is_running "websockify.* 6080 "; then
+  nohup websockify --web /usr/share/novnc 6080 localhost:5900 \
+    > "$log_dir/novnc.log" 2>&1 &
+fi

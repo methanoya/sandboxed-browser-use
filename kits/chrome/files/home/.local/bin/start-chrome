@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Open Chrome on the desktop at every sandbox start, so noVNC shows a browser
+# rather than an empty black screen. Openbox paints no wallpaper, so a desktop
+# with no windows is an all-black framebuffer and looks like a dead connection.
+set -u
+
+export DISPLAY="${DISPLAY:-:1}"
+# The sandbox environment advertises a Wayland session; keep Chrome on X11.
+unset WAYLAND_DISPLAY XDG_SESSION_TYPE
+
+cdp="http://127.0.0.1:${CHROME_DEBUG_PORT:-9222}"
+if curl -s --max-time 2 --noproxy '*' "$cdp/json/version" > /dev/null 2>&1; then
+  echo "start-chrome: Chrome is already running"
+  exit 0
+fi
+
+# start-desktop runs in parallel; wait for Xvfb before opening a window.
+for _ in $(seq 150); do
+  xdpyinfo > /dev/null 2>&1 && break
+  sleep 0.2
+done
+
+if ! xdpyinfo > /dev/null 2>&1; then
+  echo "start-chrome: no display on $DISPLAY after 30s; not starting Chrome" >&2
+  exit 1
+fi
+
+# The profile now outlives the sandbox, but /tmp does not: after a restart
+# Chrome finds a SingletonLock naming a dead pid and a SingletonSocket pointing
+# into a /tmp directory that no longer exists. Chrome usually breaks such a lock
+# itself, but it fails if the previous process is still exiting. Nothing is
+# running at this point -- the CDP check above returned nothing -- so clearing
+# the lock here is safe and removes both cases.
+if ! pgrep -u "$(id -u)" -f "google-chrome[-]stable" > /dev/null 2>&1; then
+  profile="$(chrome-profile-dir)"
+  rm -f "$profile/SingletonLock" "$profile/SingletonCookie" "$profile/SingletonSocket"
+fi
+
+# Fill the desktop: a default-sized window leaves black margins around it, which
+# is what a broken noVNC session looks like.
+exec chrome --start-maximized "${1:-about:blank}"

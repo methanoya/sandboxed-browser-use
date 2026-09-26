@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# MCP server entry point for Claude Code (see .mcp.json): makes sure the sandbox
+# Chrome is running, then runs Chrome DevTools MCP attached to it. stdout carries
+# the MCP protocol, so everything else goes to stderr.
+set -uo pipefail
+
+cdp="http://127.0.0.1:${CHROME_DEBUG_PORT:-9222}"
+
+cdp_up() { curl -s --max-time 2 --noproxy '*' "$cdp/json/version" > /dev/null; }
+
+if ! cdp_up; then
+  echo "chrome-devtools-mcp-sandbox: starting Chrome" >&2
+  setsid -f chrome about:blank > /tmp/chrome.log 2>&1 < /dev/null
+  for _ in $(seq 100); do
+    cdp_up && break
+    sleep 0.2
+  done
+fi
+
+# The version is pinned by the kit, so skip the npm update checks.
+export CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS=1
+
+exec chrome-devtools-mcp \
+  --browser-url "$cdp" \
+  --no-usage-statistics \
+  --no-performance-crux \
+  "$@"

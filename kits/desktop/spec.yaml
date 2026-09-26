@@ -1,0 +1,68 @@
+schemaVersion: "2"
+kind: mixin
+name: desktop
+displayName: Desktop (noVNC)
+description: Virtual X11 desktop (Xvfb + Openbox) for graphical apps, viewable from the host browser through noVNC on port 6080
+
+args:
+  resolution:
+    default: 1600x1000x24
+    pattern: '[0-9]+x[0-9]+x(16|24)'
+    description: Xvfb screen geometry, WIDTHxHEIGHTxDEPTH
+
+permissions:
+  network:
+    allow:
+      # apt-get update refreshes every configured source: arm64 packages come
+      # from ports.ubuntu.com, amd64 from archive/security, and the *-docker
+      # templates add Docker's apt repo.
+      - ports.ubuntu.com:80
+      - archive.ubuntu.com:80
+      - security.ubuntu.com:80
+      - download.docker.com:443
+
+ports:
+  - container: 6080
+    name: novnc
+
+environment:
+  variables:
+    DISPLAY: ":1"
+
+setup:
+  install:
+    - command: |
+        set -eu
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y --no-install-recommends \
+          xvfb x11-utils openbox x11vnc novnc websockify \
+          xdotool scrot xterm \
+          fonts-liberation fonts-noto-color-emoji fonts-noto-cjk
+        rm -rf /var/lib/apt/lists/*
+      user: "0"
+      description: Install Xvfb, Openbox, x11vnc, noVNC, xdotool, scrot, and fonts
+    - command: |
+        set -eu
+        install -m 0755 /home/agent/.local/bin/start-desktop /usr/local/bin/start-desktop
+        cat > /usr/share/novnc/index.html <<'EOF'
+        <!doctype html>
+        <meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=1&resize=scale">
+        EOF
+      user: "0"
+      description: Put start-desktop on PATH and make http://localhost:6080/ open the desktop directly
+  startup:
+    - command:
+        - sh
+        - -c
+        - nohup /usr/local/bin/start-desktop > /tmp/start-desktop.log 2>&1 &
+      user: "1000"
+      description: Start Xvfb, Openbox, x11vnc, and noVNC in the background
+
+agentInstructions:
+  content: |
+    ## Desktop (noVNC)
+
+    A virtual X11 desktop runs on `DISPLAY=:1` (Xvfb + Openbox). The user watches
+    and controls it from their host browser through noVNC (http://localhost:6080
+    by default), so anything you open there is visible to them.
